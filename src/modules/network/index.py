@@ -16,17 +16,19 @@ class LightningNetwork:
 
     def add_edge(self, edge: Edge):
         src, dst = edge.nodes[0], edge.nodes[1]
+        balance = edge.capacity // 2
+
         self.graph.add_edge(
             src.id,
             dst.id,
-            capacity=edge.capacity,
+            capacity=balance,
             fee_base=src.fee_base,
             fee_rate=src.fee_rate,
         )
         self.graph.add_edge(
             dst.id,
             src.id,
-            capacity=edge.capacity,
+            capacity=balance,
             fee_base=dst.fee_base,
             fee_rate=dst.fee_rate,
         )

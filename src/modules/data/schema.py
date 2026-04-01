@@ -20,3 +20,9 @@ class Edge(BaseModel):
 class LightningNetworkData(BaseModel):
     nodes: list[Node]
     edges: list[Edge]
+
+
+class LightningPaymentData(BaseModel):
+    source: str
+    target: str
+    amount: int
