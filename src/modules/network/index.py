@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 
 from modules.data.schema import Edge, Node
+from modules.routing.errors import InsufficientBalanceError, NoRouteError
 from modules.routing.fees import calculate_fee
 
 matplotlib.use("Qt5Agg")
@@ -13,24 +14,31 @@ class LightningNetwork:
         self.graph = nx.DiGraph()
 
     def find_route(
-        self, source: str, target: str, amount: int
-    ) -> tuple[list[str], int] | None:
-        def weight(u, v, data):
-            if data["capacity"] < amount:
-                return None
-            return calculate_fee(data["fee_base"], data["fee_rate"], amount)
-
+        self, source: str, target: str, amount: int, max_attempts: int = 10
+    ) -> tuple[list[str], int]:
         try:
-            path = nx.dijkstra_path(self.graph, source, target, weight=weight)
+            nx.dijkstra_path(self.graph, source, target)
         except nx.NetworkXNoPath:
-            return None
+            raise NoRouteError(f"No route from {source} to {target}")
 
-        total_fee = 0
-        for u, v in zip(path[:-1], path[1:]):
-            data = self.graph[u][v]
-            total_fee += calculate_fee(data["fee_base"], data["fee_rate"], amount)
+        for i, path in enumerate(nx.shortest_simple_paths(self.graph, source, target)):
+            if i >= max_attempts:
+                break
+            hops = list(zip(path[:-1], path[1:]))
+            if all(self.graph[u][v]["capacity"] >= amount for u, v in hops):
+                total_fee = sum(
+                    calculate_fee(
+                        self.graph[u][v]["fee_base"],
+                        self.graph[u][v]["fee_rate"],
+                        amount,
+                    )
+                    for u, v in hops
+                )
+                return path, total_fee
 
-        return path, total_fee
+        raise InsufficientBalanceError(
+            f"Route from {source} to {target} exists but channels lack sufficient balance for {amount} sats"
+        )
 
     def execute_payment(self, path: list[str], amount: int) -> None:
         hops = list(zip(path[:-1], path[1:]))
@@ -41,7 +49,7 @@ class LightningNetwork:
             fees.append(calculate_fee(data["fee_base"], data["fee_rate"], amount))
 
         for i, (u, v) in enumerate(hops):
-            flow = amount + sum(fees[i + 1:])
+            flow = amount + sum(fees[i + 1 :])
             self.graph[u][v]["capacity"] -= flow
             self.graph[v][u]["capacity"] += flow
 

@@ -2,7 +2,11 @@ import json
 from pathlib import Path
 
 from modules.data.schema import LightningNetworkData, LightningPaymentData
-from modules.network.index import LightningNetwork
+from modules.network.index import (
+    InsufficientBalanceError,
+    LightningNetwork,
+    NoRouteError,
+)
 from modules.utils.logger import logger
 
 if __name__ == "__main__":
@@ -35,14 +39,26 @@ if __name__ == "__main__":
 
     logger.info("Executing payments...")
     for payment in payments:
-        route = network.find_route(payment.source, payment.target, payment.amount)
-        if route:
-            path, fee = route
+        try:
+            path, fee = network.find_route(
+                payment.source, payment.target, payment.amount
+            )
             logger.info(
-                f"Payment from {payment.source} to {payment.target} for {payment.amount} satoshis: "
+                f"Payment from {payment.source} to {payment.target} for {payment.amount} sats: "
                 f"Route found with fee {fee} satoshis: {' > '.join(path)}"
             )
-        else:
+            network.execute_payment(path, payment.amount)
+            for u, v in zip(path[:-1], path[1:]):
+                logger.info(
+                    f"  Channel {u} -> {v}: capacity {network.graph[u][v]['capacity']} | "
+                    f"reverse {v} -> {u}: capacity {network.graph[v][u]['capacity']}"
+                )
+        except NoRouteError:
             logger.warning(
-                f"Payment from {payment.source} to {payment.target} for {payment.amount} satoshis: No route found"
+                f"Payment from {payment.source} to {payment.target} for {payment.amount} sats: No route found"
+            )
+        except InsufficientBalanceError:
+            logger.warning(
+                f"Payment from {payment.source} to {payment.target} for {payment.amount} sats: "
+                f"Insufficient channel balance"
             )
