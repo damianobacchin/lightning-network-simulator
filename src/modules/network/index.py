@@ -1,6 +1,7 @@
 import matplotlib
 import matplotlib.pyplot as plt
 import networkx as nx
+import numpy as np
 
 from modules.data.schema import Edge, Node
 from modules.routing.errors import InsufficientBalanceError, NoRouteError
@@ -56,9 +57,13 @@ class LightningNetwork:
     def add_node(self, node: Node):
         self.graph.add_node(node.id, alias=node.alias)
 
-    def add_edge(self, edge: Edge):
+    def add_edge(self, edge: Edge, unbalance: float = 1.0):
         src, dst = edge.nodes[0], edge.nodes[1]
-        balance = edge.capacity // 2
+
+        alpha = beta = unbalance
+        percentage = np.random.beta(alpha, beta)
+
+        balance = round(edge.capacity * percentage)
 
         self.graph.add_edge(
             src.id,
@@ -70,7 +75,7 @@ class LightningNetwork:
         self.graph.add_edge(
             dst.id,
             src.id,
-            capacity=balance,
+            capacity=edge.capacity - balance,
             fee_base=dst.fee_base,
             fee_rate=dst.fee_rate,
         )

@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 
 from modules.data.schema import LightningNetworkData, LightningPaymentData
@@ -18,6 +19,7 @@ def run_simulation(
     output_path: str = "results.json",
 ):
     logger.info("Loading Network...")
+    unbalance_factor = float(sys.argv[1]) if len(sys.argv) > 1 else 1
 
     with open(data_dir / network_path) as f:
         data = LightningNetworkData(**json.load(f))
@@ -26,7 +28,7 @@ def run_simulation(
     for node in data.nodes:
         network.add_node(node)
     for edge in data.edges:
-        network.add_edge(edge)
+        network.add_edge(edge, unbalance_factor)
 
     logger.info(
         f"Network loaded: {len(data.nodes)} nodes and {len(data.edges)} channels"
