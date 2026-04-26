@@ -3,6 +3,7 @@ import random
 import sys
 from pathlib import Path
 
+import networkx as nx
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -78,6 +79,7 @@ def generate_payments(
     network_path: str = "ln.json",
     output_path: str = "payments.json",
     shape: float = 2.0,
+    min_component_size: int = 4,
 ):
     logger.info(
         f"Generating {num_transactions} payments with avg amount {avg_amount}..."
@@ -86,8 +88,22 @@ def generate_payments(
     with open(data_dir / network_path) as f:
         network = json.load(f)
 
-    node_ids = [node["id"] for node in network["nodes"]]
-    logger.info(f"Loaded {len(node_ids)} nodes from {network_path}")
+    g = nx.Graph()
+    g.add_nodes_from(node["id"] for node in network["nodes"])
+    g.add_edges_from(
+        (edge["nodes"][0]["id"], edge["nodes"][1]["id"]) for edge in network["edges"]
+    )
+    valid_nodes = {
+        n
+        for comp in nx.connected_components(g)
+        if len(comp) >= min_component_size
+        for n in comp
+    }
+    node_ids = [node["id"] for node in network["nodes"] if node["id"] in valid_nodes]
+    logger.info(
+        f"Loaded {len(network['nodes'])} nodes from {network_path}, "
+        f"{len(node_ids)} eligible (excluded components < {min_component_size})"
+    )
 
     scale = avg_amount / shape
     amounts = np.random.gamma(shape, scale, size=num_transactions)

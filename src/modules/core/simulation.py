@@ -33,8 +33,10 @@ def run_simulation(
     for edge in data.edges:
         network.add_edge(edge, unbalance_factor)
 
+    removed = network.prune_small_components(min_size=4)
     logger.info(
-        f"Network loaded: {len(data.nodes)} nodes and {len(data.edges)} channels"
+        f"Network loaded: {len(data.nodes)} nodes and {len(data.edges)} channels "
+        f"({removed} nodes pruned from components < 4)"
     )
 
     logger.info("Loading Payments...")

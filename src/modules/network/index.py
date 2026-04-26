@@ -19,10 +19,18 @@ class LightningNetwork:
     ) -> tuple[list[str], int]:
         try:
             nx.dijkstra_path(self.graph, source, target)
-        except nx.NetworkXNoPath:
+        except (nx.NetworkXNoPath, nx.NodeNotFound):
             raise NoRouteError(f"No route from {source} to {target}")
 
-        for i, path in enumerate(nx.shortest_simple_paths(self.graph, source, target)):
+        def capacity_weight(u, v, d):
+            cap = d.get("capacity", 0)
+            return 1.0 / cap if cap > 0 else float("inf")
+
+        for i, path in enumerate(
+            nx.shortest_simple_paths(
+                self.graph, source, target, weight=capacity_weight
+            )
+        ):
             if i >= max_attempts:
                 break
             hops = list(zip(path[:-1], path[1:]))
@@ -94,6 +102,14 @@ class LightningNetwork:
             flow = amount + sum(fees[i + 1 :])
             self.graph[u][v]["capacity"] -= flow
             self.graph[v][u]["capacity"] += flow
+
+    def prune_small_components(self, min_size: int = 4) -> int:
+        components = list(nx.weakly_connected_components(self.graph))
+        to_remove = [
+            node for comp in components if len(comp) < min_size for node in comp
+        ]
+        self.graph.remove_nodes_from(to_remove)
+        return len(to_remove)
 
     def add_node(self, node: Node):
         self.graph.add_node(node.id, alias=node.alias)
