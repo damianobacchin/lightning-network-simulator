@@ -20,6 +20,9 @@ def run_simulation(
 ):
     logger.info("Loading Network...")
     unbalance_factor = float(sys.argv[1]) if len(sys.argv) > 1 else 1
+    multipath = len(sys.argv) > 2 and sys.argv[2].lower() == "multipath"
+    if multipath:
+        logger.info("Multipath payments enabled (max splits: 8)")
 
     with open(data_dir / network_path) as f:
         data = LightningNetworkData(**json.load(f))
@@ -47,20 +50,40 @@ def run_simulation(
 
     for payment in payments:
         try:
-            path, fee = network.find_route(
-                payment.source, payment.target, payment.amount
-            )
-            network.execute_payment(path, payment.amount)
-            results.append(
-                {
+            if multipath:
+                routes = network.find_multipath_route(
+                    payment.source, payment.target, payment.amount
+                )
+            else:
+                path, fee = network.find_route(
+                    payment.source, payment.target, payment.amount
+                )
+                routes = [(path, payment.amount, fee)]
+
+            for path, part_amount, _ in routes:
+                network.execute_payment(path, part_amount)
+
+            total_fee = sum(f for _, _, f in routes)
+            if len(routes) == 1:
+                result_entry = {
                     "source": payment.source,
                     "target": payment.target,
                     "amount": payment.amount,
                     "status": "success",
-                    "fee": fee,
-                    "path": path,
+                    "fee": total_fee,
+                    "path": routes[0][0],
                 }
-            )
+            else:
+                result_entry = {
+                    "source": payment.source,
+                    "target": payment.target,
+                    "amount": payment.amount,
+                    "status": "success",
+                    "fee": total_fee,
+                    "splits": len(routes),
+                    "paths": [{"path": p, "amount": a, "fee": f} for p, a, f in routes],
+                }
+            results.append(result_entry)
             successful += 1
         except NoRouteError:
             results.append(

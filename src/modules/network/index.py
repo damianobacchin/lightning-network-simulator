@@ -41,6 +41,47 @@ class LightningNetwork:
             f"Route from {source} to {target} exists but channels lack sufficient balance for {amount} sats"
         )
 
+    def find_multipath_route(
+        self,
+        source: str,
+        target: str,
+        amount: int,
+        max_splits: int = 3,
+    ) -> list[tuple[list[str], int, int]]:
+        try:
+            path, fee = self.find_route(source, target, amount)
+            return [(path, amount, fee)]
+        except InsufficientBalanceError:
+            pass
+
+        original_graph = self.graph
+        try:
+            for n in range(1, max_splits + 1):
+                parts = 2**n
+                if amount < parts:
+                    break
+                base = amount // parts
+                remainder = amount - base * parts
+
+                self.graph = original_graph.copy()
+                try:
+                    routes: list[tuple[list[str], int, int]] = []
+                    for i in range(parts):
+                        part_amount = base + (1 if i < remainder else 0)
+                        path, fee = self.find_route(source, target, part_amount)
+                        routes.append((path, part_amount, fee))
+                        for u, v in zip(path[:-1], path[1:]):
+                            self.graph[u][v]["capacity"] -= part_amount
+                    return routes
+                except InsufficientBalanceError:
+                    continue
+        finally:
+            self.graph = original_graph
+
+        raise InsufficientBalanceError(
+            f"Cannot route {amount} sats from {source} to {target} even splitting into {2**max_splits} parts"
+        )
+
     def execute_payment(self, path: list[str], amount: int) -> None:
         hops = list(zip(path[:-1], path[1:]))
 
