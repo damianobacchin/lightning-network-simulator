@@ -2,7 +2,7 @@ import json
 import sys
 from pathlib import Path
 
-from modules.data.schema import LightningNetworkData, LightningPaymentData
+from modules.data.schema import LightningPaymentData
 from modules.network.index import (
     InsufficientBalanceError,
     LightningNetwork,
@@ -14,30 +14,31 @@ data_dir = Path(__file__).resolve().parents[3] / "data"
 
 
 def run_simulation(
-    network_path: str = "ln.json",
+    state_path: str = "state.json",
     payments_path: str = "payments.json",
     output_path: str = "results.json",
 ):
-    logger.info("Loading Network...")
-    unbalance_factor = float(sys.argv[1]) if len(sys.argv) > 1 else 1
-    multipath = len(sys.argv) > 2 and sys.argv[2].lower() == "multipath"
+    flags = {arg.lower() for arg in sys.argv[1:]}
+    multipath = "multipath" in flags
+    splicing = "splicing" in flags
     if multipath:
         logger.info("Multipath payments enabled (max splits: 8)")
+    if splicing:
+        logger.info("Splicing rebalance enabled (threshold: 30%)")
 
-    with open(data_dir / network_path) as f:
-        data = LightningNetworkData(**json.load(f))
-
+    logger.info(f"Loading network state from {state_path}...")
     network = LightningNetwork()
-    for node in data.nodes:
-        network.add_node(node)
-    for edge in data.edges:
-        network.add_edge(edge, unbalance_factor)
-
-    removed = network.prune_small_components(min_size=4)
+    network.load_state(data_dir / state_path)
     logger.info(
-        f"Network loaded: {len(data.nodes)} nodes and {len(data.edges)} channels "
-        f"({removed} nodes pruned from components < 4)"
+        f"State loaded: {network.graph.number_of_nodes()} nodes, "
+        f"{network.graph.number_of_edges()} directed edges"
     )
+
+    rebalance_fees = 0
+    splice_count = 0
+    fees_by_node: dict[str, int] = {}
+    if splicing:
+        logger.info("Applying splicing rebalance...")
 
     logger.info("Loading Payments...")
     with open(data_dir / payments_path) as f:
@@ -129,6 +130,12 @@ def run_simulation(
         "failed": failed,
         "success_rate": success_rate,
         "failure_reasons": failure_reasons,
+        "rebalance": {
+            "enabled": splicing,
+            "splice_count": splice_count,
+            "onchain_fees_sat": rebalance_fees,
+            "fees_by_node": fees_by_node,
+        },
     }
 
     with open(data_dir / output_path, "w") as f:

@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import matplotlib
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -136,6 +139,39 @@ class LightningNetwork:
             fee_base=dst.fee_base,
             fee_rate=dst.fee_rate,
         )
+
+    def save_state(self, path: str | Path) -> None:
+        nodes = [
+            {"id": n, "alias": d.get("alias", "")}
+            for n, d in self.graph.nodes(data=True)
+        ]
+        edges = [
+            {
+                "u": u,
+                "v": v,
+                "capacity": d["capacity"],
+                "fee_base": d["fee_base"],
+                "fee_rate": d["fee_rate"],
+            }
+            for u, v, d in self.graph.edges(data=True)
+        ]
+        with open(path, "w") as f:
+            json.dump({"nodes": nodes, "edges": edges}, f)
+
+    def load_state(self, path: str | Path) -> None:
+        with open(path) as f:
+            state = json.load(f)
+        self.graph = nx.DiGraph()
+        for n in state["nodes"]:
+            self.graph.add_node(n["id"], alias=n.get("alias", ""))
+        for e in state["edges"]:
+            self.graph.add_edge(
+                e["u"],
+                e["v"],
+                capacity=e["capacity"],
+                fee_base=e["fee_base"],
+                fee_rate=e["fee_rate"],
+            )
 
     def plot(self):
         pos = nx.nx_agraph.graphviz_layout(self.graph, prog="sfdp")
