@@ -2,7 +2,7 @@ import json
 import sys
 from pathlib import Path
 
-from modules.core.strategies import splicing_rebalance
+from modules.core.strategies import STRATEGIES
 from modules.data.schema import LightningPaymentData
 from modules.network.index import (
     InsufficientBalanceError,
@@ -40,7 +40,7 @@ def run_simulation(
     fees_by_node: dict[str, int] = {}
     if splicing:
         logger.info("Applying splicing rebalance...")
-        rebalance_stats = splicing_rebalance(network)
+        rebalance_stats = STRATEGIES["splicing"]().apply(network)
         rebalance_fees = rebalance_stats["onchain_fees_sat"]
         splice_count = rebalance_stats["splice_count"]
         fees_by_node = rebalance_stats["fees_by_node"]
