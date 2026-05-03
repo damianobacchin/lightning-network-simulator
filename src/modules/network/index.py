@@ -91,6 +91,71 @@ class LightningNetwork:
             f"Cannot route {amount} sats from {src} to {dst} even splitting into {2**max_splits} parts"
         )
 
+    def find_circular_route(
+        self,
+        src_channel: tuple[str, str],
+        dst_channel: tuple[str, str],
+        amount: int,
+    ) -> tuple[list[str], int]:
+        max_attempts = 10
+        node, first_hop = src_channel
+        node_check, last_hop_peer = dst_channel
+        if node != node_check:
+            raise ValueError(
+                f"src and dst channels must share the same source node: "
+                f"got {node} and {node_check}"
+            )
+        if first_hop == last_hop_peer:
+            raise ValueError("src and dst channels must be different")
+
+        if self.graph[node][first_hop]["capacity"] < amount:
+            raise InsufficientBalanceError(
+                f"Out channel {node}->{first_hop} lacks balance for {amount} sats"
+            )
+        if self.graph[last_hop_peer][node]["capacity"] < amount:
+            raise InsufficientBalanceError(
+                f"In channel {last_hop_peer}->{node} lacks balance for {amount} sats"
+            )
+
+        subgraph = self.graph.subgraph([n for n in self.graph.nodes() if n != node])
+
+        try:
+            nx.dijkstra_path(subgraph, first_hop, last_hop_peer)
+        except (nx.NetworkXNoPath, nx.NodeNotFound):
+            raise NoRouteError(
+                f"No circular route from {node} via {first_hop} "
+                f"returning through {last_hop_peer}"
+            )
+
+        def capacity_weight(u, v, d):
+            cap = d.get("capacity", 0)
+            return 1.0 / cap if cap > 0 else float("inf")
+
+        for i, mid_path in enumerate(
+            nx.shortest_simple_paths(
+                subgraph, first_hop, last_hop_peer, weight=capacity_weight
+            )
+        ):
+            if i >= max_attempts:
+                break
+            full_path = [node] + list(mid_path) + [node]
+            hops = list(zip(full_path[:-1], full_path[1:]))
+            if all(self.graph[u][v]["capacity"] >= amount for u, v in hops):
+                total_fee = sum(
+                    calculate_fee(
+                        self.graph[u][v]["fee_base"],
+                        self.graph[u][v]["fee_rate"],
+                        amount,
+                    )
+                    for u, v in hops
+                )
+                return full_path, total_fee
+
+        raise InsufficientBalanceError(
+            f"Circular route exists but channels lack sufficient balance "
+            f"for {amount} sats"
+        )
+
     def execute_payment(self, path: list[str], amount: int) -> None:
         hops = list(zip(path[:-1], path[1:]))
 

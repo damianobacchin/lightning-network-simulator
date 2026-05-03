@@ -44,7 +44,6 @@ def run_simulation(
         circular_rebalancing = CircularRebalancing(network, payments)
         circular_rebalancing.analyze_payments()
         circular_rebalancing.apply_rebalancing()
-        raise NotImplementedError
 
     jit_strategy = JITStrategy() if jit else None
 
