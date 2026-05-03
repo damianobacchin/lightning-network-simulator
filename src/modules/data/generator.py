@@ -119,8 +119,10 @@ def generate_payments(
     payments = []
     for i, path in enumerate(paths):
         payments.append(
-            {"source": path[0], "target": path[1], "amount": max(1, int(amounts[i]))}
+            {"src": path[0], "dst": path[1], "amount": max(1, int(amounts[i]))}
         )
+
+    random.shuffle(payments)
 
     with open(data_dir / output_path, "w") as f:
         json.dump(payments, f, indent=4)

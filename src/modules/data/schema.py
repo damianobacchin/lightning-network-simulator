@@ -22,6 +22,6 @@ class LightningNetworkData(BaseModel):
 
 
 class LightningPaymentData(BaseModel):
-    source: str
-    target: str
+    src: str
+    dst: str
     amount: int

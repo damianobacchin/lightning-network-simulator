@@ -18,19 +18,19 @@ class LightningNetwork:
         self.graph = nx.DiGraph()
 
     def find_route(
-        self, source: str, target: str, amount: int, max_attempts: int = 10
+        self, src: str, dst: str, amount: int, max_attempts: int = 10
     ) -> tuple[list[str], int]:
         try:
-            nx.dijkstra_path(self.graph, source, target)
+            nx.dijkstra_path(self.graph, src, dst)
         except (nx.NetworkXNoPath, nx.NodeNotFound):
-            raise NoRouteError(f"No route from {source} to {target}")
+            raise NoRouteError(f"No route from {src} to {dst}")
 
         def capacity_weight(u, v, d):
             cap = d.get("capacity", 0)
             return 1.0 / cap if cap > 0 else float("inf")
 
         for i, path in enumerate(
-            nx.shortest_simple_paths(self.graph, source, target, weight=capacity_weight)
+            nx.shortest_simple_paths(self.graph, src, dst, weight=capacity_weight)
         ):
             if i >= max_attempts:
                 break
@@ -47,7 +47,7 @@ class LightningNetwork:
                 return path, total_fee
 
         raise InsufficientBalanceError(
-            f"Route from {source} to {target} exists but channels lack sufficient balance for {amount} sats"
+            f"Route from {src} to {dst} exists but channels lack sufficient balance for {amount} sats"
         )
 
     def find_multipath_route(
@@ -162,6 +162,6 @@ class LightningNetwork:
 
     def plot(self):
         pos = nx.nx_agraph.graphviz_layout(self.graph, prog="sfdp")
-        labels = nx.get_node_attributes(self.graph, "alias")
+        labels = nx.get_node_attributes(self.graph, "id")
         nx.draw(self.graph, pos, labels=labels, with_labels=True, node_color="skyblue")
         plt.show()

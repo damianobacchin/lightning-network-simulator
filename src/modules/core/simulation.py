@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 from modules.core.strategies import STRATEGIES, JITStrategy
+from modules.core.strategies.circular_rebalancing import CircularRebalancing
 from modules.data.schema import LightningPaymentData
 from modules.network.index import (
     InsufficientBalanceError,
@@ -23,17 +24,30 @@ def run_simulation(
     multipath = "multipath" in flags
     splicing = "splicing" in flags
     jit = "jit" in flags
+    optimized = "optimized" in flags
+
+    logger.info(f"Loading network state from {state_path}...")
+    network = LightningNetwork()
+    network.load_state(data_dir / state_path)
+
+    logger.info("Loading Payments...")
+    with open(data_dir / payments_path) as f:
+        payments = [LightningPaymentData(**tx) for tx in json.load(f)]
+
     if multipath:
         logger.info("Multipath payments enabled (max splits: 8)")
     if splicing:
         logger.info("Splicing rebalance enabled (threshold: 30%)")
     if jit:
         logger.info("JIT rebalance enabled (min channels: 2)")
+    if optimized:
+        circular_rebalancing = CircularRebalancing(network, payments)
+        circular_rebalancing.analyze_payments()
+        circular_rebalancing.apply_rebalancing()
+        raise NotImplementedError
+
     jit_strategy = JITStrategy() if jit else None
 
-    logger.info(f"Loading network state from {state_path}...")
-    network = LightningNetwork()
-    network.load_state(data_dir / state_path)
     logger.info(
         f"State loaded: {network.graph.number_of_nodes()} nodes, "
         f"{network.graph.number_of_edges()} directed edges"
@@ -53,10 +67,6 @@ def run_simulation(
             f"{len(fees_by_node)} nodes, total onchain fees: {rebalance_fees} sats"
         )
 
-    logger.info("Loading Payments...")
-    with open(data_dir / payments_path) as f:
-        payments = [LightningPaymentData(**tx) for tx in json.load(f)]
-
     logger.info(f"Payments loaded: {len(payments)} payments")
 
     logger.info("Executing payments...")
@@ -71,12 +81,10 @@ def run_simulation(
         try:
             if multipath:
                 routes = network.find_multipath_route(
-                    payment.source, payment.target, payment.amount
+                    payment.src, payment.dst, payment.amount
                 )
             else:
-                path, fee = network.find_route(
-                    payment.source, payment.target, payment.amount
-                )
+                path, fee = network.find_route(payment.src, payment.dst, payment.amount)
                 routes = [(path, payment.amount, fee)]
 
             for path, part_amount, _ in routes:
@@ -85,8 +93,8 @@ def run_simulation(
             total_fee = sum(f for _, _, f in routes)
             if len(routes) == 1:
                 result_entry = {
-                    "source": payment.source,
-                    "target": payment.target,
+                    "source": payment.src,
+                    "target": payment.dst,
                     "amount": payment.amount,
                     "status": "success",
                     "fee": total_fee,
@@ -94,8 +102,8 @@ def run_simulation(
                 }
             else:
                 result_entry = {
-                    "source": payment.source,
-                    "target": payment.target,
+                    "source": payment.src,
+                    "target": payment.dst,
                     "amount": payment.amount,
                     "status": "success",
                     "fee": total_fee,
@@ -107,8 +115,8 @@ def run_simulation(
         except NoRouteError:
             results.append(
                 {
-                    "source": payment.source,
-                    "target": payment.target,
+                    "source": payment.src,
+                    "target": payment.dst,
                     "amount": payment.amount,
                     "status": "no_route",
                 }
@@ -118,7 +126,7 @@ def run_simulation(
             jit_result = None
             if jit_strategy is not None:
                 jit_result = jit_strategy.try_route(
-                    network, payment.source, payment.target, payment.amount
+                    network, payment.src, payment.dst, payment.amount
                 )
             if jit_result is not None:
                 path, payment_fee, jit_fee, jit_node_fees = jit_result
@@ -129,8 +137,8 @@ def run_simulation(
                     jit_fees_by_node[n] = jit_fees_by_node.get(n, 0) + f
                 results.append(
                     {
-                        "source": payment.source,
-                        "target": payment.target,
+                        "source": payment.src,
+                        "target": payment.dst,
                         "amount": payment.amount,
                         "status": "success",
                         "fee": payment_fee,
@@ -142,8 +150,8 @@ def run_simulation(
             else:
                 results.append(
                     {
-                        "source": payment.source,
-                        "target": payment.target,
+                        "source": payment.src,
+                        "target": payment.dst,
                         "amount": payment.amount,
                         "status": "insufficient_balance",
                     }
