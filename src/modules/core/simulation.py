@@ -2,7 +2,7 @@ import json
 import sys
 from pathlib import Path
 
-from modules.core.strategies import STRATEGIES
+from modules.core.strategies import STRATEGIES, JITStrategy
 from modules.data.schema import LightningPaymentData
 from modules.network.index import (
     InsufficientBalanceError,
@@ -22,10 +22,14 @@ def run_simulation(
     flags = {arg.lower() for arg in sys.argv[1:]}
     multipath = "multipath" in flags
     splicing = "splicing" in flags
+    jit = "jit" in flags
     if multipath:
         logger.info("Multipath payments enabled (max splits: 8)")
     if splicing:
         logger.info("Splicing rebalance enabled (threshold: 30%)")
+    if jit:
+        logger.info("JIT rebalance enabled (min channels: 2)")
+    jit_strategy = JITStrategy() if jit else None
 
     logger.info(f"Loading network state from {state_path}...")
     network = LightningNetwork()
@@ -59,6 +63,9 @@ def run_simulation(
     results = []
     successful = 0
     failed = 0
+    jit_count = 0
+    jit_fees_total = 0
+    jit_fees_by_node: dict[str, int] = {}
 
     for payment in payments:
         try:
@@ -108,15 +115,40 @@ def run_simulation(
             )
             failed += 1
         except InsufficientBalanceError:
-            results.append(
-                {
-                    "source": payment.source,
-                    "target": payment.target,
-                    "amount": payment.amount,
-                    "status": "insufficient_balance",
-                }
-            )
-            failed += 1
+            jit_result = None
+            if jit_strategy is not None:
+                jit_result = jit_strategy.try_route(
+                    network, payment.source, payment.target, payment.amount
+                )
+            if jit_result is not None:
+                path, payment_fee, jit_fee, jit_node_fees = jit_result
+                network.execute_payment(path, payment.amount)
+                jit_count += 1
+                jit_fees_total += jit_fee
+                for n, f in jit_node_fees.items():
+                    jit_fees_by_node[n] = jit_fees_by_node.get(n, 0) + f
+                results.append(
+                    {
+                        "source": payment.source,
+                        "target": payment.target,
+                        "amount": payment.amount,
+                        "status": "success",
+                        "fee": payment_fee,
+                        "path": path,
+                        "jit_fee": jit_fee,
+                    }
+                )
+                successful += 1
+            else:
+                results.append(
+                    {
+                        "source": payment.source,
+                        "target": payment.target,
+                        "amount": payment.amount,
+                        "status": "insufficient_balance",
+                    }
+                )
+                failed += 1
 
     total = len(payments)
     success_rate = (successful / total * 100) if total else 0.0
@@ -145,6 +177,12 @@ def run_simulation(
             "onchain_fees_sat": rebalance_fees,
             "fees_by_node": fees_by_node,
         },
+        "jit": {
+            "enabled": jit,
+            "rebalance_count": jit_count,
+            "rebalance_fees_sat": jit_fees_total,
+            "fees_by_node": jit_fees_by_node,
+        },
     }
 
     with open(data_dir / output_path, "w") as f:
@@ -160,4 +198,9 @@ def run_simulation(
             logger.info(
                 f"  - {reason}: {info['count']} ({info['percentage']:.2f}% of failures)"
             )
+    if jit:
+        logger.info(
+            f"JIT rebalance: {jit_count} ops on {len(jit_fees_by_node)} nodes, "
+            f"total routing fees: {jit_fees_total} sats"
+        )
     logger.info(f"Results saved to {output_path}")

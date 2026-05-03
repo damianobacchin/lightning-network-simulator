@@ -82,6 +82,7 @@ def generate_payments(
     output_path: str = "payments.json",
     shape: float = 2.0,
     min_component_size: int = 4,
+    min_endpoint_degree: int = 1,
 ):
     logger.info(
         f"Generating {num_transactions} payments with avg amount {avg_amount}..."
@@ -101,10 +102,15 @@ def generate_payments(
         if len(comp) >= min_component_size
         for n in comp
     }
-    node_ids = [node["id"] for node in network["nodes"] if node["id"] in valid_nodes]
+    node_ids = [
+        node["id"]
+        for node in network["nodes"]
+        if node["id"] in valid_nodes and g.degree(node["id"]) >= min_endpoint_degree
+    ]
     logger.info(
         f"Loaded {len(network['nodes'])} nodes from {network_path}, "
-        f"{len(node_ids)} eligible (excluded components < {min_component_size})"
+        f"{len(node_ids)} eligible "
+        f"(component size >= {min_component_size}, degree >= {min_endpoint_degree})"
     )
 
     scale = avg_amount / shape
@@ -171,12 +177,16 @@ if __name__ == "__main__":
     elif command == "payments":
         if len(sys.argv) < 4:
             logger.error(
-                "Usage: python generator.py payments <num_transactions> <avg_amount>"
+                "Usage: python generator.py payments "
+                "<num_transactions> <avg_amount> [min_endpoint_degree]"
             )
             sys.exit(1)
         num_transactions = int(sys.argv[2])
         avg_amount = float(sys.argv[3])
-        generate_payments(num_transactions, avg_amount)
+        min_endpoint_degree = int(sys.argv[4]) if len(sys.argv) > 4 else 1
+        generate_payments(
+            num_transactions, avg_amount, min_endpoint_degree=min_endpoint_degree
+        )
     else:
         logger.error(f"Unknown command: {command}")
         sys.exit(1)
