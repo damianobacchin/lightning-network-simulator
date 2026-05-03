@@ -3,7 +3,6 @@ from pydantic import BaseModel
 
 class Node(BaseModel):
     id: str
-    alias: str | None
 
 
 class EdgeNode(BaseModel):

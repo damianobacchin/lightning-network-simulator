@@ -30,9 +30,7 @@ class LightningNetwork:
             return 1.0 / cap if cap > 0 else float("inf")
 
         for i, path in enumerate(
-            nx.shortest_simple_paths(
-                self.graph, source, target, weight=capacity_weight
-            )
+            nx.shortest_simple_paths(self.graph, source, target, weight=capacity_weight)
         ):
             if i >= max_attempts:
                 break
@@ -54,13 +52,13 @@ class LightningNetwork:
 
     def find_multipath_route(
         self,
-        source: str,
-        target: str,
+        src: str,
+        dst: str,
         amount: int,
         max_splits: int = 3,
     ) -> list[tuple[list[str], int, int]]:
         try:
-            path, fee = self.find_route(source, target, amount)
+            path, fee = self.find_route(src, dst, amount)
             return [(path, amount, fee)]
         except InsufficientBalanceError:
             pass
@@ -79,7 +77,7 @@ class LightningNetwork:
                     routes: list[tuple[list[str], int, int]] = []
                     for i in range(parts):
                         part_amount = base + (1 if i < remainder else 0)
-                        path, fee = self.find_route(source, target, part_amount)
+                        path, fee = self.find_route(src, dst, part_amount)
                         routes.append((path, part_amount, fee))
                         for u, v in zip(path[:-1], path[1:]):
                             self.graph[u][v]["capacity"] -= part_amount
@@ -90,7 +88,7 @@ class LightningNetwork:
             self.graph = original_graph
 
         raise InsufficientBalanceError(
-            f"Cannot route {amount} sats from {source} to {target} even splitting into {2**max_splits} parts"
+            f"Cannot route {amount} sats from {src} to {dst} even splitting into {2**max_splits} parts"
         )
 
     def execute_payment(self, path: list[str], amount: int) -> None:
@@ -106,21 +104,13 @@ class LightningNetwork:
             self.graph[u][v]["capacity"] -= flow
             self.graph[v][u]["capacity"] += flow
 
-    def prune_small_components(self, min_size: int = 4) -> int:
-        components = list(nx.weakly_connected_components(self.graph))
-        to_remove = [
-            node for comp in components if len(comp) < min_size for node in comp
-        ]
-        self.graph.remove_nodes_from(to_remove)
-        return len(to_remove)
-
     def add_node(self, node: Node):
-        self.graph.add_node(node.id, alias=node.alias)
+        self.graph.add_node(node.id)
 
-    def add_edge(self, edge: Edge, unbalance: float = 1.0):
+    def add_edge(self, edge: Edge, balance_factor: float = 1.0):
         src, dst = edge.nodes[0], edge.nodes[1]
 
-        alpha = beta = unbalance
+        alpha = beta = balance_factor
         percentage = np.random.beta(alpha, beta)
 
         balance = round(edge.capacity * percentage)
@@ -141,19 +131,16 @@ class LightningNetwork:
         )
 
     def save_state(self, path: str | Path) -> None:
-        nodes = [
-            {"id": n, "alias": d.get("alias", "")}
-            for n, d in self.graph.nodes(data=True)
-        ]
+        nodes = [{"id": n} for n in self.graph.nodes()]
         edges = [
             {
-                "u": u,
-                "v": v,
+                "src": src,
+                "dst": dst,
                 "capacity": d["capacity"],
                 "fee_base": d["fee_base"],
                 "fee_rate": d["fee_rate"],
             }
-            for u, v, d in self.graph.edges(data=True)
+            for src, dst, d in self.graph.edges(data=True)
         ]
         with open(path, "w") as f:
             json.dump({"nodes": nodes, "edges": edges}, f)
@@ -163,11 +150,11 @@ class LightningNetwork:
             state = json.load(f)
         self.graph = nx.DiGraph()
         for n in state["nodes"]:
-            self.graph.add_node(n["id"], alias=n.get("alias", ""))
+            self.graph.add_node(n["id"])
         for e in state["edges"]:
             self.graph.add_edge(
-                e["u"],
-                e["v"],
+                e["src"],
+                e["dst"],
                 capacity=e["capacity"],
                 fee_base=e["fee_base"],
                 fee_rate=e["fee_rate"],
