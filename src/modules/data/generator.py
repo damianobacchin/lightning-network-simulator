@@ -76,51 +76,50 @@ def graph_converter(input_path: str = "raw.json", output_path: str = "ln.json"):
 
 
 def generate_payments(
-    num_transactions: int,
+    num_payments: int,
     avg_amount: float,
-    network_path: str = "ln.json",
-    output_path: str = "payments.json",
-    shape: float = 2.0,
-    min_component_size: int = 4,
-    min_endpoint_degree: int = 1,
+    recurrence_rate: float = 0.2,
 ):
-    logger.info(
-        f"Generating {num_transactions} payments with avg amount {avg_amount}..."
-    )
+    network_path = "ln.json"
+    output_path = "payments.json"
+
+    logger.info(f"Generating {num_payments} payments with avg amount {avg_amount}...")
 
     with open(data_dir / network_path) as f:
         network = json.load(f)
 
-    g = nx.Graph()
-    g.add_nodes_from(node["id"] for node in network["nodes"])
-    g.add_edges_from(
+    ln = nx.Graph()
+    ln.add_nodes_from(node["id"] for node in network["nodes"])
+    ln.add_edges_from(
         (edge["nodes"][0]["id"], edge["nodes"][1]["id"]) for edge in network["edges"]
     )
-    valid_nodes = {
-        n
-        for comp in nx.connected_components(g)
-        if len(comp) >= min_component_size
-        for n in comp
-    }
-    node_ids = [
-        node["id"]
-        for node in network["nodes"]
-        if node["id"] in valid_nodes and g.degree(node["id"]) >= min_endpoint_degree
-    ]
-    logger.info(
-        f"Loaded {len(network['nodes'])} nodes from {network_path}, "
-        f"{len(node_ids)} eligible "
-        f"(component size >= {min_component_size}, degree >= {min_endpoint_degree})"
-    )
 
+    if not nx.is_connected(ln):
+        largest_cc = max(nx.connected_components(ln), key=len)
+        ln = ln.subgraph(largest_cc).copy()
+        logger.info(
+            f"Graph is not fully connected. Keeping largest component with {ln.number_of_nodes()} nodes and {ln.number_of_edges()} edges."
+        )
+
+    node_ids = list(ln.nodes())
+
+    shape = 2.0
     scale = avg_amount / shape
-    amounts = np.random.gamma(shape, scale, size=num_transactions)
+    amounts = np.random.gamma(shape, scale, size=num_payments)
+
+    paths: list[tuple[str, str]] = []
+    for _ in range(int(num_payments * (1 - recurrence_rate))):
+        source, target = random.sample(node_ids, 2)
+        paths.append((source, target))
+
+    for _ in range(num_payments - len(paths)):
+        source, target = random.choice(paths)
+        paths.append((source, target))
 
     payments = []
-    for amount in amounts:
-        source, target = random.sample(node_ids, 2)
+    for i, path in enumerate(paths):
         payments.append(
-            {"source": source, "target": target, "amount": max(1, int(amount))}
+            {"source": path[0], "target": path[1], "amount": max(1, int(amounts[i]))}
         )
 
     with open(data_dir / output_path, "w") as f:
@@ -178,15 +177,13 @@ if __name__ == "__main__":
         if len(sys.argv) < 4:
             logger.error(
                 "Usage: python generator.py payments "
-                "<num_transactions> <avg_amount> [min_endpoint_degree]"
+                "<num_transactions> <avg_amount> <recurrence_rate>"
             )
             sys.exit(1)
         num_transactions = int(sys.argv[2])
         avg_amount = float(sys.argv[3])
-        min_endpoint_degree = int(sys.argv[4]) if len(sys.argv) > 4 else 1
-        generate_payments(
-            num_transactions, avg_amount, min_endpoint_degree=min_endpoint_degree
-        )
+        recurrence_rate = float(sys.argv[4]) if len(sys.argv) >= 5 else 0.2
+        generate_payments(num_transactions, avg_amount, recurrence_rate)
     else:
         logger.error(f"Unknown command: {command}")
         sys.exit(1)
