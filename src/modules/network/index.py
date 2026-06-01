@@ -225,8 +225,26 @@ class LightningNetwork:
                 fee_rate=e["fee_rate"],
             )
 
-    def plot(self):
+    @staticmethod
+    def load_graph(path: str | Path) -> nx.Graph:
+        with open(path) as f:
+            data = json.load(f)
+        graph = nx.Graph()
+        for n in data["nodes"]:
+            graph.add_node(n["id"])
+        for e in data["edges"]:
+            src, dst = e["nodes"][0], e["nodes"][1]
+            graph.add_edge(src["id"], dst["id"])
+        return graph
+
+    def plot(self, _labels: bool = True):
         pos = nx.nx_agraph.graphviz_layout(self.graph, prog="sfdp")
         labels = nx.get_node_attributes(self.graph, "id")
-        nx.draw(self.graph, pos, labels=labels, with_labels=True, node_color="skyblue")
+        nx.draw(
+            self.graph,
+            pos,
+            labels=labels if _labels else None,
+            with_labels=_labels,
+            node_color="skyblue",
+        )
         plt.show()
