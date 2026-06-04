@@ -1,9 +1,11 @@
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import networkx as nx
+import numpy as np
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import LogNorm
 
@@ -114,5 +116,74 @@ def avg_neighbor_degree(input_path: str = "ln.json"):
     plt.show()
 
 
+def degree_distribution(input_path: str = "ln.json"):
+    path = data_dir / input_path
+    ln = LightningNetwork.load_graph(path)
+
+    plt.figure(figsize=(7, 4))
+
+    degree_cent = list(nx.degree_centrality(ln).values())
+
+    plt.hist(degree_cent, bins=50, color="steelblue", edgecolor="black", alpha=0.7)
+    plt.grid(True, which="both", alpha=0.3)
+    plt.xlabel("Degree Centrality")
+    plt.ylabel("Frequency")
+    plt.semilogy()
+    plt.tight_layout()
+    plt.show()
+
+
+def power_law_fit(
+    input_path: str = "ln.json",
+    metric: str = "degree",
+    log_binning: bool = False,
+    k: int | None = 500,
+):
+    path = data_dir / input_path
+    ln = LightningNetwork.load_graph(path)
+
+    if metric == "degree":
+        values = [d for _, d in ln.degree() if d > 0]
+        xlabel, ylabel = "k (log)", "P(k) (log)"
+    elif metric == "betweenness":
+        sample = k if k is None else min(k, ln.number_of_nodes())
+        betweenness = nx.betweenness_centrality(ln, k=sample, seed=42)
+        values = [b for b in betweenness.values() if b > 0]
+        log_binning = True
+        xlabel, ylabel = "Betweenness centrality (log)", "P(b) (log)"
+    else:
+        raise ValueError(f"Unknown metric: {metric!r} (use 'degree' or 'betweenness')")
+
+    if log_binning:
+        bins = np.logspace(np.log10(min(values)), np.log10(max(values)), num=20)
+        counts, bin_edges = np.histogram(values, bins=bins, density=True)
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+        nonzero = counts > 0
+        x = np.log10(bin_centers[nonzero])
+        y = np.log10(counts[nonzero])
+        label = "Data with log-binning"
+    else:
+        value_counts = Counter(values)
+        v = np.array(list(value_counts.keys()))
+        pv = np.array(list(value_counts.values()))
+        x = np.log10(v)
+        y = np.log10(pv)
+        label = "LN data (log-log)"
+
+    m, c = np.polyfit(x, y, 1)
+    gamma = -m
+    logger.info(f"Power-law exponent for {metric} (gamma): {gamma:.4f}")
+
+    plt.figure(figsize=(8, 5))
+    plt.scatter(x, y, alpha=0.5, label=label)
+    plt.plot(x, m * x + c, color="red", label=f"Linear fit (gamma={gamma:.2f})")
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.grid(True, which="both", ls="--", alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == "__main__":
-    plot_graph()
+    power_law_fit(log_binning=True)
