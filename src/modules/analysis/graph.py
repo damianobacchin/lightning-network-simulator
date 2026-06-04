@@ -185,5 +185,156 @@ def power_law_fit(
     plt.show()
 
 
+def detect_communities(
+    input_path: str = "ln.json",
+    output_path: str = "ln_communities.pdf",
+    seed: int = 42,
+):
+    path = data_dir / input_path
+    ln = LightningNetwork.load_graph(path)
+
+    largest_cc = max(nx.connected_components(ln), key=len)
+    ln_cc = ln.subgraph(largest_cc).copy()
+
+    communities = nx.community.louvain_communities(ln_cc, seed=seed)
+    communities = sorted(communities, key=len, reverse=True)
+    modularity = nx.community.modularity(ln_cc, communities)
+    logger.info(
+        f"Detected {len(communities)} communities "
+        f"(modularity {modularity:.4f}) over {ln_cc.number_of_nodes()} nodes"
+    )
+
+    community_of = {node: idx for idx, comm in enumerate(communities) for node in comm}
+    cmap = plt.get_cmap("tab20")
+    node_colors = [cmap(community_of[n] % 20) for n in ln_cc.nodes()]
+
+    pos = nx.nx_agraph.graphviz_layout(ln_cc, prog="sfdp")
+
+    plt.figure(figsize=(16, 9))
+    nx.draw_networkx_nodes(
+        ln_cc,
+        pos,
+        node_size=5,
+        node_color=node_colors,
+        alpha=0.8,
+    )
+    nx.draw_networkx_edges(ln_cc, pos, width=0.1, alpha=0.4, edge_color="gray")
+    plt.axis("off")
+    plt.tight_layout()
+
+    out = data_dir / output_path
+    plt.savefig(out, format="pdf", bbox_inches="tight")
+    plt.show()
+
+
+def plot_dendrogram(
+    input_path: str = "ln.json",
+    output_path: str = "ln_dendrogram.pdf",
+    seed: int = 42,
+):
+    path = data_dir / input_path
+    ln = LightningNetwork.load_graph(path)
+
+    largest_cc = max(nx.connected_components(ln), key=len)
+    ln_cc = ln.subgraph(largest_cc).copy()
+
+    communities = nx.community.louvain_communities(ln_cc, seed=seed)
+    communities = sorted(communities, key=len, reverse=True)
+    n = len(communities)
+    logger.info(f"Building dendrogram over {n} communities")
+
+    community_of = {node: idx for idx, comm in enumerate(communities) for node in comm}
+    weight = np.zeros((n, n))
+    for u, v in ln_cc.edges():
+        cu, cv = community_of[u], community_of[v]
+        if cu != cv:
+            weight[cu, cv] += 1
+            weight[cv, cu] += 1
+
+    sizes = np.array([len(c) for c in communities])
+    strength = weight / np.outer(sizes, sizes)
+    distance = strength.max() - strength
+    np.fill_diagonal(distance, 0.0)
+
+    clusters = {i: {i} for i in range(n)}
+    children: dict[int, tuple[int, int]] = {}
+    height = {i: 0.0 for i in range(n)}
+    merge_distance: dict[int, float] = {}
+    next_id = n
+    step = 1
+    while len(clusters) > 1:
+        ids = list(clusters)
+        best: tuple[float, int, int] = (np.inf, -1, -1)
+        for a_i in range(len(ids)):
+            for b_i in range(a_i + 1, len(ids)):
+                a, b = ids[a_i], ids[b_i]
+                d = float(
+                    np.mean([distance[i, j] for i in clusters[a] for j in clusters[b]])
+                )
+                if d < best[0]:
+                    best = (d, a, b)
+        d, a, b = best
+        children[next_id] = (a, b)
+        height[next_id] = step
+        merge_distance[next_id] = d
+        clusters[next_id] = clusters.pop(a) | clusters.pop(b)
+        next_id += 1
+        step += 1
+    root = next_id - 1
+
+    order: list[int] = []
+
+    def collect(node: int):
+        if node in children:
+            collect(children[node][0])
+            collect(children[node][1])
+        else:
+            order.append(node)
+
+    collect(root)
+    leaf_x = {leaf: i for i, leaf in enumerate(order)}
+
+    cmap = plt.get_cmap("tab20")
+    plt.figure(figsize=(14, 9))
+
+    def draw(node: int) -> float:
+        if node not in children:
+            return leaf_x[node]
+        left, right = children[node]
+        xl, xr = draw(left), draw(right)
+        h = height[node]
+        plt.plot([xl, xl], [height[left], h], color="steelblue", linewidth=1.3)
+        plt.plot([xr, xr], [height[right], h], color="steelblue", linewidth=1.3)
+        plt.plot([xl, xr], [h, h], color="steelblue", linewidth=1.3)
+        plt.text(
+            (xl + xr) / 2,
+            h + 0.12,
+            f"{merge_distance[node]:.4f}",
+            fontsize=7,
+            color="dimgray",
+            ha="center",
+            va="bottom",
+        )
+        return (xl + xr) / 2
+
+    draw(root)
+
+    labels = [f"C{leaf} (n={sizes[leaf]})" for leaf in order]
+    plt.xticks(range(n), labels, rotation=90)
+    for tick, leaf in zip(plt.gca().get_xticklabels(), order):
+        tick.set_color(cmap(leaf % 20))
+    plt.margins(x=0.02)
+    plt.ylim(-0.5, step + 0.5)
+    plt.yticks(range(step))
+    plt.ylabel("Merge step (earlier = stronger coupling; label = coupling distance)")
+    plt.grid(True, axis="y", linestyle="--", linewidth=0.5, alpha=0.4)
+    plt.gca().set_axisbelow(True)
+    plt.tight_layout()
+
+    out = data_dir / output_path
+    plt.savefig(out, format="pdf", bbox_inches="tight")
+    plt.show()
+
+
 if __name__ == "__main__":
-    power_law_fit(log_binning=True)
+    plot_dendrogram()
