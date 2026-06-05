@@ -133,6 +133,56 @@ def degree_distribution(input_path: str = "ln.json"):
     plt.show()
 
 
+def distance_distribution(
+    input_path: str = "ln.json",
+    output_path: str = "ln_distance_distribution.pdf",
+    sample: int | None = 1000,
+    seed: int = 42,
+):
+    path = data_dir / input_path
+    ln = LightningNetwork.load_graph(path)
+
+    largest_cc = max(nx.connected_components(ln), key=len)
+    ln_cc = ln.subgraph(largest_cc).copy()
+    nodes = list(ln_cc.nodes())
+
+    if sample is not None and sample < len(nodes):
+        rng = np.random.default_rng(seed)
+        sources = [nodes[i] for i in rng.choice(len(nodes), size=sample, replace=False)]
+        logger.info(f"Sampling shortest paths from {sample} of {len(nodes)} sources")
+    else:
+        sources = nodes
+        logger.info(f"Computing exact all-pairs distances over {len(nodes)} nodes")
+
+    dist_counts: Counter = Counter()
+    for s in sources:
+        for d in nx.single_source_shortest_path_length(ln_cc, s).values():
+            if d > 0:
+                dist_counts[d] += 1
+
+    total = sum(dist_counts.values())
+    distances = sorted(dist_counts)
+    probs = [dist_counts[d] / total for d in distances]
+
+    avg_distance = sum(d * c for d, c in dist_counts.items()) / total
+    logger.info(
+        f"Distance distribution over {total} pairs: "
+        f"<d> = {avg_distance:.4f}, max d = {max(distances)}"
+    )
+
+    plt.figure(figsize=(8, 4))
+    plt.bar(distances, probs, color="steelblue", edgecolor="black", alpha=0.8)
+    plt.xlabel("Distance d (hops)")
+    plt.ylabel("P(d)")
+    plt.xticks(distances)
+    plt.grid(True, axis="y", ls="--", alpha=0.3)
+    plt.tight_layout()
+
+    out = data_dir / output_path
+    plt.savefig(out, format="pdf", bbox_inches="tight")
+    plt.show()
+
+
 def power_law_fit(
     input_path: str = "ln.json",
     metric: str = "degree",
@@ -337,4 +387,4 @@ def plot_dendrogram(
 
 
 if __name__ == "__main__":
-    plot_dendrogram()
+    distance_distribution()
