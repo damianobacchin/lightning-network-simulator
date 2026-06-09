@@ -7,6 +7,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from modules.analysis.graph_generation import generate_graph
 from modules.network.index import LightningNetwork
 from modules.utils.logger import logger
 
@@ -79,6 +80,32 @@ def _simulate_attack(
     return fractions, gc_sizes, diameters
 
 
+def _gc_size_curve(
+    graph: nx.Graph, order: list, max_remove: int, batch: int
+) -> tuple[list[float], list[float]]:
+    g = graph.copy()
+    total = graph.number_of_nodes()
+    fractions: list[float] = []
+    gc_sizes: list[float] = []
+
+    def record(removed: int):
+        if g.number_of_nodes() == 0:
+            size = 0
+        else:
+            size = len(max(nx.connected_components(g), key=len))
+        fractions.append(removed / total)
+        gc_sizes.append(size / total)
+
+    record(0)
+    removed = 0
+    while removed < max_remove:
+        k = min(batch, max_remove - removed)
+        g.remove_nodes_from(order[removed : removed + k])
+        removed += k
+        record(removed)
+    return fractions, gc_sizes
+
+
 def attack_simulation(
     input_path: str = "ln.json",
     output_path: str = "ln_robustness_attacks.pdf",
@@ -126,5 +153,88 @@ def attack_simulation(
     plt.show()
 
 
+def alpha_robustness_simulation(
+    nodes: int | None = None,
+    edges: int | None = None,
+    alphas: tuple[float, ...] = (0.5, 0.75, 1.0, 1.25, 1.5),
+    leaf_fraction: float = 0.2,
+    n0: int = 6,
+    strategies: tuple[str, ...] = ("degree", "betweenness", "random"),
+    output_path: str = "ba_robustness_alpha.pdf",
+    max_fraction: float = 0.5,
+    step_fraction: float = 0.01,
+    betweenness_sample: int = 500,
+    seed: int = 42,
+):
+    if nodes is None or edges is None:
+        ref = LightningNetwork.load_graph(data_dir / "ln.json")
+        nodes = nodes or ref.number_of_nodes()
+        edges = edges or ref.number_of_edges()
+    logger.info(
+        f"Alpha robustness sweep: {nodes} nodes, {edges} edges, "
+        f"alpha in {list(alphas)}, strategies {list(strategies)}"
+    )
+
+    max_remove = int(max_fraction * nodes)
+    batch = max(1, round(step_fraction * nodes))
+
+    fractions: list[float] = []
+    gc_curves: dict[str, list[list[float]]] = {s: [] for s in strategies}
+    diam_curves: dict[str, list[list[int]]] = {s: [] for s in strategies}
+    for alpha in alphas:
+        graph = generate_graph(
+            nodes,
+            edges,
+            alpha=alpha,
+            leaf_fraction=leaf_fraction,
+            n0=n0,
+            output_path="_ba_alpha_sweep.json",
+        )
+        for strategy in strategies:
+            order = _attack_order(graph, strategy, betweenness_sample, seed)
+            fractions, gc_sizes, diameters = _simulate_attack(
+                graph, order, max_remove, batch
+            )
+            gc_curves[strategy].append(gc_sizes)
+            diam_curves[strategy].append(diameters)
+            logger.info(
+                f"alpha={alpha} {strategy}: final giant component {gc_sizes[-1]:.3f}N, "
+                f"diameter {diameters[-1]}"
+            )
+
+    (data_dir / "_ba_alpha_sweep.json").unlink(missing_ok=True)
+
+    fig, axes = plt.subplots(
+        2,
+        len(strategies),
+        figsize=(6 * len(strategies), 9),
+        sharex=True,
+        layout="constrained",
+    )
+    axes = np.array(axes).reshape(2, len(strategies))
+
+    for col, strategy in enumerate(strategies):
+        ax_gc, ax_diam = axes[0, col], axes[1, col]
+        for alpha, gc_sizes, diameters in zip(
+            alphas, gc_curves[strategy], diam_curves[strategy]
+        ):
+            ax_gc.plot(fractions, gc_sizes, lw=1.8, label=rf"$\alpha$={alpha}")
+            ax_diam.plot(fractions, diameters, lw=1.8, label=rf"$\alpha$={alpha}")
+        ax_gc.set_title(f"{strategy.capitalize()} attack")
+        ax_gc.grid(True, ls="--", alpha=0.3)
+        ax_gc.set_ylim(bottom=0)
+        ax_diam.set_xlabel("Fraction of nodes removed")
+        ax_diam.grid(True, ls="--", alpha=0.3)
+        ax_diam.set_xlim(left=0)
+        ax_diam.set_ylim(bottom=0)
+    axes[0, 0].set_ylabel("Giant component (fraction of N)")
+    axes[1, 0].set_ylabel("Giant component diameter")
+    axes[0, -1].legend()
+
+    out = data_dir / output_path
+    fig.savefig(out, format="pdf", bbox_inches="tight")
+    plt.show()
+
+
 if __name__ == "__main__":
-    attack_simulation()
+    alpha_robustness_simulation()
