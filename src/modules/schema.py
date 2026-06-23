@@ -25,3 +25,10 @@ class LightningPaymentData(BaseModel):
     src: str
     dst: str
     amount: int
+
+
+class SimulationResult(BaseModel):
+    total_payments: int
+    successful_payments: int
+    failed_payments: int
+    total_fees: int
