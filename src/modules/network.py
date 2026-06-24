@@ -1,5 +1,6 @@
 import math
 import random
+from datetime import datetime, timedelta
 
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -80,6 +81,11 @@ class LightningNetwork:
     def find_circular_route(
         self, src_channel: tuple[str, str], dst_channel: tuple[str, str], amount: int
     ) -> tuple[list[str], int] | None:
+        if (
+            self.graph[src_channel[0]][src_channel[1]]["balance"] < amount
+            or self.graph[dst_channel[0]][dst_channel[1]]["balance"] < amount
+        ):
+            return None
         route = self.find_route(src_channel[1], dst_channel[0], amount)
         if route is not None:
             path, total_fee = route
@@ -108,12 +114,22 @@ class LightningNetwork:
             self.graph[v][u]["balance"] += flow
 
     def generate_payments(
-        self, num_payments: int, avg_amount: float, recurrence_rate: float = 0
+        self,
+        num_payments: int,
+        avg_amount: float,
+        duration: int,
+        recurrence_rate: float = 0,
     ) -> list[LightningPaymentData]:
         nodes = list(self.graph.nodes())
         shape = 2.0
         scale = avg_amount / shape
+
         amounts = np.random.gamma(shape, scale, size=num_payments)
+        now = datetime.now()
+        timestamps = [
+            now + timedelta(seconds=int(s))
+            for s in np.random.uniform(0, duration, size=num_payments)
+        ]
 
         paths: list[tuple[str, str]] = []
         for _ in range(int(num_payments * (1 - recurrence_rate))):
@@ -128,7 +144,10 @@ class LightningNetwork:
         for i, path in enumerate(paths):
             payments.append(
                 LightningPaymentData(
-                    src=path[0], dst=path[1], amount=max(1, int(amounts[i]))
+                    src=path[0],
+                    dst=path[1],
+                    amount=max(1, int(amounts[i])),
+                    timestamp=timestamps[i],
                 )
             )
 

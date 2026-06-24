@@ -15,9 +15,10 @@ if __name__ == "__main__":
     lightning_network = LightningNetwork(graph_data, balance_ratio=0.5)
     lightning_network.plot(_labels=True)
 
-    # payments = lightning_network.generate_payments(
-    #     avg_amount=50000, num_payments=100, recurrence_rate=0
-    # )
+    payments = lightning_network.generate_payments(
+        avg_amount=50000, num_payments=100, duration=3600, recurrence_rate=0
+    )
+    print(payments)
 
     # simulation_result = run_simulation(lightning_network, payments)
     # print(simulation_result)

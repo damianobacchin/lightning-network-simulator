@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -25,6 +27,7 @@ class LightningPaymentData(BaseModel):
     src: str
     dst: str
     amount: int
+    timestamp: datetime
 
 
 class SimulationResult(BaseModel):
