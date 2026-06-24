@@ -25,39 +25,33 @@ class RebalancingStrategy:
         for (u, v), amount in channels_usage.items():
             self.network.graph[u][v]["lambda"] = amount
 
-    def submarine_swap(self, threshold: int = 100):
-        graph = self.network.graph
+    def submarine_swap(self, rebalance_threshold: float = 0.2):
         rebalanced_channels = 0
-        for node in graph.nodes():
-            if graph.out_degree(node) < 2:
-                continue
-            net_flow = {
-                v: data["lambda"] - graph[v][node]["lambda"]
-                for _, v, data in graph.out_edges(node, data=True)
-            }
-            capital = sum(graph[node][v]["balance"] for v in net_flow)
-            total_imbalance = sum(abs(f) for f in net_flow.values()) or 1
-            delta = {v: capital * f // total_imbalance for v, f in net_flow.items()}
-            deficits = sorted(
-                (v for v in delta if delta[v] > 0), key=lambda v: -delta[v]
-            )
-            surpluses = sorted(
-                (v for v in delta if delta[v] < 0), key=lambda v: delta[v]
-            )
-            for deficit, surplus in zip(deficits, surpluses):
-                amount = min(
-                    delta[deficit],
-                    -delta[surplus],
-                    graph[node][surplus]["balance"],
-                    graph[deficit][node]["balance"],
-                )
-                if amount < threshold:
-                    continue
-                graph[node][deficit]["balance"] += amount
-                graph[deficit][node]["balance"] -= amount
-                graph[node][surplus]["balance"] -= amount
-                graph[surplus][node]["balance"] += amount
+        for node in self.network.graph.nodes():
+            for channel in self.network.graph.out_edges(node, data=True):
+                u, v, channel_out = channel
+                channel_in = self.network.graph[v][u]
 
-                rebalanced_channels += 1
+                lambda_in = channel_in.get("lambda", 0)
+                lambda_out = channel_out.get("lambda", 0)
+                lambda_tot = lambda_in + lambda_out
+                if lambda_tot == 0:
+                    continue
+
+                capacity_in = channel_in.get("balance", 0)
+                capacity_out = channel_out.get("balance", 0)
+                channel_capacity = capacity_in + capacity_out
+
+                rebalance_amount = capacity_out - (
+                    lambda_out * channel_capacity / lambda_tot
+                )
+
+                if rebalance_amount < rebalance_threshold * channel_capacity:
+                    continue
+                else:
+                    self.network.execute_payment(
+                        path=[u, v], amount=int(rebalance_amount)
+                    )
+                    rebalanced_channels += 1
 
         logger.info(f"Rebalanced {rebalanced_channels} channels using submarine swaps.")

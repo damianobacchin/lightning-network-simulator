@@ -50,11 +50,17 @@ class LightningNetwork:
         self, src: str, dst: str, amount: int, simulation: bool = False
     ) -> tuple[list[str], int] | None:
         def routing_weight(_u, _v, data) -> float:
-            if data.get("balance", 0) < amount and not simulation:
-                return math.inf
-            return calculate_fee(
-                data.get("fee_base", 0), data.get("fee_rate", 0), amount
+            channel_capacity = data.get("balance", 0) + self.graph[_v][_u].get(
+                "balance", 0
             )
+            if simulation and channel_capacity < amount:
+                return math.inf
+            elif not simulation and data.get("balance", 0) < amount:
+                return math.inf
+            else:
+                return calculate_fee(
+                    data.get("fee_base", 0), data.get("fee_rate", 0), amount
+                )
 
         try:
             path = nx.shortest_path(
@@ -111,6 +117,13 @@ class LightningNetwork:
             flow = amount + sum(fees[i + 1 :])
             self.graph[u][v]["balance"] -= flow
             self.graph[v][u]["balance"] += flow
+
+    def network_connectivity(self) -> tuple[float, list[float]]:
+        undirected_graph = self.graph.to_undirected()
+        core_graph = nx.k_core(undirected_graph, k=5)
+        lambda_2 = nx.algebraic_connectivity(core_graph)
+        fiedler_vector = nx.fiedler_vector(core_graph)
+        return lambda_2, fiedler_vector.tolist()
 
     def plot(self, _labels: bool = True):
         pos = nx.nx_agraph.graphviz_layout(self.graph, prog="sfdp")
