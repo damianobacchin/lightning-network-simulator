@@ -26,6 +26,7 @@ class LightningNetwork:
                         "balance": int(edge.capacity * balance_ratio),
                         "fee_base": edge.nodes[0].fee_base,
                         "fee_rate": edge.nodes[0].fee_rate,
+                        "lambda": 0,
                     },
                 ),
                 (
@@ -35,6 +36,7 @@ class LightningNetwork:
                         "balance": int(edge.capacity * (1 - balance_ratio)),
                         "fee_base": edge.nodes[1].fee_base,
                         "fee_rate": edge.nodes[1].fee_rate,
+                        "lambda": 0,
                     },
                 ),
             ]
@@ -45,10 +47,10 @@ class LightningNetwork:
         self.graph = self.graph.subgraph(largest_connected_component).copy()
 
     def find_route(
-        self, src: str, dst: str, amount: int
+        self, src: str, dst: str, amount: int, simulation: bool = False
     ) -> tuple[list[str], int] | None:
         def routing_weight(_u, _v, data) -> float:
-            if data.get("balance", 0) < amount:
+            if data.get("balance", 0) < amount and not simulation:
                 return math.inf
             return calculate_fee(
                 data.get("fee_base", 0), data.get("fee_rate", 0), amount
