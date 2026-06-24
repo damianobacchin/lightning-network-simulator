@@ -1,25 +1,74 @@
+import random
+from datetime import datetime, timedelta
+
+import numpy as np
+
 from modules.network import LightningNetwork
 from modules.schema import LightningPaymentData, SimulationResult
 
 
-def run_simulation(
-    network: LightningNetwork, payments: list[LightningPaymentData]
-) -> SimulationResult:
-    simulation_result = SimulationResult(
-        total_payments=len(payments),
-        successful_payments=0,
-        failed_payments=0,
-        total_fees=0,
-    )
+class Simulation:
+    def __init__(self, network: LightningNetwork):
+        self.network = network
+        self.payments: list[LightningPaymentData] = []
 
-    for payment in payments:
-        route = network.find_route(payment.src, payment.dst, payment.amount)
-        if route:
-            path, total_fee = route
-            network.execute_payment(path, payment.amount)
-            simulation_result.successful_payments += 1
-            simulation_result.total_fees += total_fee
-        else:
-            simulation_result.failed_payments += 1
+    def generate_payments(
+        self,
+        num_payments: int,
+        avg_amount: float,
+        duration: int,
+        recurrence_rate: float = 0,
+    ):
+        nodes = list(self.network.graph.nodes())
+        shape = 2.0
+        scale = avg_amount / shape
 
-    return simulation_result
+        amounts = np.random.gamma(shape, scale, size=num_payments)
+        now = datetime.now()
+        timestamps = [
+            now + timedelta(seconds=int(s))
+            for s in np.random.uniform(0, duration, size=num_payments)
+        ]
+
+        paths: list[tuple[str, str]] = []
+        for _ in range(int(num_payments * (1 - recurrence_rate))):
+            source, target = random.sample(nodes, 2)
+            paths.append((source, target))
+
+        for _ in range(num_payments - len(paths)):
+            source, target = random.choice(paths)
+            paths.append((source, target))
+
+        payments: list[LightningPaymentData] = []
+        for i, path in enumerate(paths):
+            payments.append(
+                LightningPaymentData(
+                    src=path[0],
+                    dst=path[1],
+                    amount=max(1, int(amounts[i])),
+                    timestamp=timestamps[i],
+                )
+            )
+
+        random.shuffle(payments)
+        self.payments = payments
+
+    def run_simulation(self) -> SimulationResult:
+        simulation_result = SimulationResult(
+            total_payments=len(self.payments),
+            successful_payments=0,
+            failed_payments=0,
+            total_fees=0,
+        )
+
+        for payment in self.payments:
+            route = self.network.find_route(payment.src, payment.dst, payment.amount)
+            if route:
+                path, total_fee = route
+                self.network.execute_payment(path, payment.amount)
+                simulation_result.successful_payments += 1
+                simulation_result.total_fees += total_fee
+            else:
+                simulation_result.failed_payments += 1
+
+        return simulation_result

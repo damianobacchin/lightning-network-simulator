@@ -1,15 +1,12 @@
 import math
-import random
-from datetime import datetime, timedelta
 
 import matplotlib.pyplot as plt
 import networkx as nx
-import numpy as np
 
 from modules.config import config
 from modules.errors import InsufficientBalanceError, NoRouteError
 from modules.fees import calculate_fee
-from modules.schema import LightningNetworkData, LightningPaymentData
+from modules.schema import LightningNetworkData
 
 
 class LightningNetwork:
@@ -112,47 +109,6 @@ class LightningNetwork:
             flow = amount + sum(fees[i + 1 :])
             self.graph[u][v]["balance"] -= flow
             self.graph[v][u]["balance"] += flow
-
-    def generate_payments(
-        self,
-        num_payments: int,
-        avg_amount: float,
-        duration: int,
-        recurrence_rate: float = 0,
-    ) -> list[LightningPaymentData]:
-        nodes = list(self.graph.nodes())
-        shape = 2.0
-        scale = avg_amount / shape
-
-        amounts = np.random.gamma(shape, scale, size=num_payments)
-        now = datetime.now()
-        timestamps = [
-            now + timedelta(seconds=int(s))
-            for s in np.random.uniform(0, duration, size=num_payments)
-        ]
-
-        paths: list[tuple[str, str]] = []
-        for _ in range(int(num_payments * (1 - recurrence_rate))):
-            source, target = random.sample(nodes, 2)
-            paths.append((source, target))
-
-        for _ in range(num_payments - len(paths)):
-            source, target = random.choice(paths)
-            paths.append((source, target))
-
-        payments: list[LightningPaymentData] = []
-        for i, path in enumerate(paths):
-            payments.append(
-                LightningPaymentData(
-                    src=path[0],
-                    dst=path[1],
-                    amount=max(1, int(amounts[i])),
-                    timestamp=timestamps[i],
-                )
-            )
-
-        random.shuffle(payments)
-        return payments
 
     def plot(self, _labels: bool = True):
         pos = nx.nx_agraph.graphviz_layout(self.graph, prog="sfdp")
