@@ -18,8 +18,13 @@ class Simulation:
         avg_amount: float,
         duration: int,
         recurrence_rate: float = 0,
+        max_amount_ratio: float = 0.3,
     ):
         nodes = list(self.network.graph.nodes())
+        out_capacity = {
+            n: sum(d["balance"] for _, _, d in self.network.graph.out_edges(n, data=True))
+            for n in nodes
+        }
         shape = 2.0
         scale = avg_amount / shape
 
@@ -41,11 +46,12 @@ class Simulation:
 
         payments: list[LightningPaymentData] = []
         for i, path in enumerate(paths):
+            cap = int(max_amount_ratio * out_capacity[path[0]])
             payments.append(
                 LightningPaymentData(
                     src=path[0],
                     dst=path[1],
-                    amount=max(1, int(amounts[i])),
+                    amount=max(1, min(int(amounts[i]), cap)),
                     timestamp=timestamps[i],
                 )
             )
@@ -53,7 +59,7 @@ class Simulation:
         random.shuffle(payments)
         self.payments = payments
 
-    def run_simulation(self) -> SimulationResult:
+    def run_simulation(self, circular_rebalancing: bool = False) -> SimulationResult:
         simulation_result = SimulationResult(
             total_payments=len(self.payments),
             successful_payments=0,
