@@ -1,4 +1,5 @@
 from collections import defaultdict
+from statistics import mean
 
 from modules.logger import logger
 from modules.network import LightningNetwork
@@ -9,6 +10,24 @@ class RebalancingStrategy:
     def __init__(self, network: LightningNetwork, simulation: Simulation):
         self.network = network
         self.simulation = simulation
+
+    def analyze_channels_balance(
+        self, channels: list[tuple[str, str]] | None = None
+    ) -> float:
+        balances: list[int] = []
+        for edge in channels or self.network.graph.edges():
+            u, v = edge
+            channel_out = self.network.graph[u][v]["balance"]
+            channel_in = self.network.graph[v][u]["balance"]
+            channel_capacity = channel_out + channel_in
+
+            balance_ratio = (
+                channel_out / channel_capacity
+                if channel_out < channel_in
+                else channel_in / channel_capacity
+            )
+            balances.append(balance_ratio)
+        return mean(balances)
 
     def analyze_payments(self):
         channels_usage: dict[tuple[str, str], int] = defaultdict(lambda: 0)
@@ -55,3 +74,25 @@ class RebalancingStrategy:
                     rebalanced_channels += 1
 
         logger.info(f"Rebalanced {rebalanced_channels} channels using submarine swaps.")
+
+    def passive_rebalance(
+        self, max_fee_base: int = 2000, max_fee_rate: int = 20_000
+    ) -> list[tuple[str, str]]:
+        channels = set()
+        for u, v, channel in self.network.graph.edges(data=True):
+            channel_out = channel["balance"]
+            channel_in = self.network.graph[v][u]["balance"]
+            skew = (channel_out - channel_in) / (channel_out + channel_in)
+            factor = (1 - skew) / 2
+            channel["fee_base"] = int(max_fee_base * factor)
+            channel["fee_rate"] = int(max_fee_rate * factor)
+
+        for payment in self.simulation.payments:
+            route = self.network.find_route(
+                payment.src, payment.dst, payment.amount, simulation=True
+            )
+            if route is not None:
+                self.network.execute_payment(route[0], payment.amount)
+                channels = channels.union(set(zip(route[0][:-1], route[0][1:])))
+
+        return list(channels)
