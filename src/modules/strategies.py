@@ -75,6 +75,32 @@ class RebalancingStrategy:
 
         logger.info(f"Rebalanced {rebalanced_channels} channels using submarine swaps.")
 
+    def circular_rebalance(self, rebalance_threshold: float = 0.2):
+        rebalanced = 0
+        for node in self.network.graph.nodes():
+            imbalances = []
+            for u, v, out in self.network.graph.out_edges(node, data=True):
+                inb = self.network.graph[v][u]
+                lambda_tot = out.get("lambda", 0) + inb.get("lambda", 0)
+                if not lambda_tot:
+                    continue
+                capacity = out["balance"] + inb["balance"]
+                imbalance = out["balance"] - out.get("lambda", 0) * capacity / lambda_tot
+                if abs(imbalance) >= rebalance_threshold * capacity:
+                    imbalances.append((imbalance, v))
+
+            surplus = sorted((c for c in imbalances if c[0] > 0), reverse=True)
+            deficit = sorted(c for c in imbalances if c[0] < 0)
+            for (surplus_amount, sv), (deficit_amount, dv) in zip(surplus, deficit):
+                amount = int(min(surplus_amount, -deficit_amount))
+                route = self.network.find_circular_route((node, sv), (dv, node), amount)
+                if route is None:
+                    continue
+                self.network.execute_payment(route[0], amount)
+                rebalanced += 1
+
+        logger.info(f"Rebalanced {rebalanced} channel pairs using circular payments.")
+
     def passive_rebalance(
         self, max_fee_base: int = 2000, max_fee_rate: int = 20_000
     ) -> list[tuple[str, str]]:

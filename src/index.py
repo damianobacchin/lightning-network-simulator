@@ -17,11 +17,11 @@ if __name__ == "__main__":
     simulation = Simulation(lightning_network)
 
     simulation.generate_payments(
-        avg_amount=5000, num_payments=1000, duration=180, recurrence_rate=0.1
+        avg_amount=5000, num_payments=10000, duration=180, recurrence_rate=0.1
     )
 
     strategy = RebalancingStrategy(lightning_network, simulation)
     strategy.analyze_payments()
-    strategy.submarine_swap()
+    strategy.circular_rebalance()
 
     print(simulation.run_simulation())
