@@ -22,6 +22,6 @@ if __name__ == "__main__":
 
     strategy = RebalancingStrategy(lightning_network, simulation)
     strategy.analyze_payments()
-    strategy.circular_rebalance()
+    strategy.circular_rebalance_opt()
 
     print(simulation.run_simulation())

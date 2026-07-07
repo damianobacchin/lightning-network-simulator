@@ -47,7 +47,12 @@ class LightningNetwork:
         self.graph = self.graph.subgraph(largest_connected_component).copy()
 
     def find_route(
-        self, src: str, dst: str, amount: int, simulation: bool = False
+        self,
+        src: str,
+        dst: str,
+        amount: int,
+        simulation: bool = False,
+        rebalance: bool = False,
     ) -> tuple[list[str], int] | None:
         def routing_weight(_u, _v, data) -> float:
             channel_capacity = data.get("balance", 0) + self.graph[_v][_u].get(
@@ -57,6 +62,8 @@ class LightningNetwork:
                 return math.inf
             elif not simulation and data.get("balance", 0) < amount:
                 return math.inf
+            elif rebalance:
+                return (1 - data.get("rebalance_score", 0) / channel_capacity) / 2
             else:
                 return calculate_fee(
                     data.get("fee_base", 0), data.get("fee_rate", 0), amount
@@ -84,14 +91,20 @@ class LightningNetwork:
             return None
 
     def find_circular_route(
-        self, src_channel: tuple[str, str], dst_channel: tuple[str, str], amount: int
+        self,
+        src_channel: tuple[str, str],
+        dst_channel: tuple[str, str],
+        amount: int,
+        rebalance: bool = False,
     ) -> tuple[list[str], int] | None:
         if (
             self.graph[src_channel[0]][src_channel[1]]["balance"] < amount
             or self.graph[dst_channel[0]][dst_channel[1]]["balance"] < amount
         ):
             return None
-        route = self.find_route(src_channel[1], dst_channel[0], amount)
+        route = self.find_route(
+            src_channel[1], dst_channel[0], amount, rebalance=rebalance
+        )
         if route is not None:
             path, total_fee = route
             path = [src_channel[0]] + path + [dst_channel[1]]
