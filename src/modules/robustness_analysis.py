@@ -41,7 +41,7 @@ styles = {
     "betweenness": {"color": "firebrick", "marker": "o"},
     "random": {"color": "seagreen", "marker": "o", "markerfacecolor": "none"},
 }
-alpha_markers = ("o", "s", "^", "D", "v")
+markers = ("o", "s", "^", "D", "v")
 output_dir = Path(__file__).resolve().parents[2] / "output" / "robustness_analysis"
 
 
@@ -146,12 +146,29 @@ class RobustnessAnalysis:
             )
             for alpha in alphas
         }
-        cls._plot_alpha(analyses, strategies, filename)
+        labels = {alpha: rf"$\alpha = {alpha}$" for alpha in alphas}
+        cls._plot_grid(analyses, labels, strategies, filename)
+        return analyses
+
+    @classmethod
+    def compare(
+        cls,
+        graphs: Mapping[str, nx.Graph],
+        strategies: tuple[str, ...] = strategies,
+        filename: str = "robustness_comparison.pdf",
+        **kwargs,
+    ) -> Mapping[str, "RobustnessAnalysis"]:
+        analyses = {
+            name: cls(graph, strategies=strategies, **kwargs)
+            for name, graph in graphs.items()
+        }
+        cls._plot_grid(analyses, {name: name for name in graphs}, strategies, filename)
         return analyses
 
     @staticmethod
-    def _plot_alpha(
-        analyses: Mapping[float, "RobustnessAnalysis"],
+    def _plot_grid(
+        analyses: Mapping,
+        labels: Mapping,
         strategies: tuple[str, ...],
         filename: str,
     ):
@@ -168,14 +185,14 @@ class RobustnessAnalysis:
         cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
         for col, strategy in enumerate(strategies):
             ax_size, ax_diam = axes[0, col], axes[1, col]
-            for j, (alpha, analysis) in enumerate(analyses.items()):
+            for j, (key, analysis) in enumerate(analyses.items()):
                 style = {
                     "color": cycle[j % len(cycle)],
-                    "marker": alpha_markers[j % len(alpha_markers)],
+                    "marker": markers[j % len(markers)],
                     "markerfacecolor": "none" if j % 2 else cycle[j % len(cycle)],
                 }
                 sizes, diameters = analysis.results[strategy]
-                ax_size.plot(analysis.fractions, sizes, label=rf"$\alpha = {alpha}$", **style)
+                ax_size.plot(analysis.fractions, sizes, label=labels[key], **style)
                 ax_diam.plot(analysis.fractions, diameters, **style)
             ax_size.set_title(f"{strategy.capitalize()} attack")
             for ax in (ax_size, ax_diam):
